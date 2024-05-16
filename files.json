@@ -1,0 +1,13 @@
+{
+    "Extensions.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "Orientations.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "PathfindingNetworkMethods.lua": { "ComputerTypes": ["Computer"] },
+    "PathfindingRednetTurtle.lua": { "ComputerTypes": ["Computer"] },
+    "PathfindingTurtle.lua": { "ComputerTypes": ["Turtle"], "IsMain": true },
+    "PathfindingTurtleBase.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "PathfindingTurtleLogic.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "PathfindingTurtleServer.lua": { "ComputerTypes": ["Computer"], "IsMain": true },
+    "json.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "vec3.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "heap.lua": { "ComputerTypes": ["Turtle", "Computer"] }
+}
