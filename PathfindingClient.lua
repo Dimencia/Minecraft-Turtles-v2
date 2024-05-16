@@ -1,29 +1,156 @@
--- This is where we'll define client implementations of methods that the server should be able to rednet
-local Orientations = require("Orientations")
-local vec3 = require("vec3")
-local BlockData, PositionData, MoveListData, MoveListResult, DirectionDefinition, Orientation, TurtleRednetMessage = table.unpack(require("PathfindingTurtleBase"))
+-- A simple pathfinding turtle client, capable of following a list of moves from a pathfinding server and returning block data it detected
 local Extensions = require("Extensions")
+local Orientations = require("Orientations")
+-- TODO: Store and load these from some sub folder?  So they're not in the way making a mess of the files on the turtle
+local vec3 = require("vec3")
+local json = require("json")
+local logger = require("AdvancedLogging")
+local wrapModule = require("RednetWrappable")
 
+logger:AddLogger(print, LogLevels.Debug)
+logger:AddFileLogger("LogFile", LogLevels.Warning)
 
----@class PathfindingTurtleNetworkMethods
----@field BlockData table<vec3, BlockData>
+-- Class for the turtle's state, which is sent with every rednet message when accessed as a wrappable
+---@class TurtleState
 ---@field Position vec3
 ---@field Orientation vec3
-local networkMethodsClass = { BlockData = {} }
 
-function networkMethodsClass:new(values)
-    values = values or {}
-    self.__index = self
-    return setmetatable(values, self)
+-- Class for a turtle client, exposing methods to be called via rednet
+---@class PathfindingClient : RednetWrapClient
+---@field private Position vec3
+---@field private Orientation vec3
+local Client = wrapModule.ClientBuilder.new(turtle) -- Start from turtle, which metas to wrapclient, which metas to the static
+
+Client.Id = os.getComputerID() ---@private
+Client.FuelSlot = 16 ---@private
+Client.HostedProtocolName = Extensions.TurtleClientProtocol
+---@private
+---@type table<string, BlockData>
+Client.BlockData = {}
+
+
+-- Private client methods
+
+-- When a turtle is in front, above, or below us, we can wrap it and get its ID
+---@private
+function Client:GetAdjacentComputerId(orientation)
+	local wrapDirection = "front"
+	if orientation == Orientations.Down then wrapDirection = "bottom" end
+	if orientation == Orientations.Up then wrapDirection = "top" end
+	local wrapped = peripheral.wrap(wrapDirection)
+	if wrapped and wrapped.getID then
+		return wrapped.getID()
+	end
+	return nil
 end
 
----@return PositionData
-function networkMethodsClass:GetPositionData()
-	return PositionData:new { Position = self.Position, Orientation = self.Orientation }
+---@class TurtleBlockDetails
+---@field name string
+
+---@private
+---@return BlockData
+---@param orientation vec3
+function Client:SetBlockData(orientation)
+	local methodName = Extensions.GetMethodNameFor("inspect", orientation)
+	local isOccupied, data = self[methodName]()
+	local position = self.Position + orientation
+	local result = BlockData:new {
+		Position = position,
+		IsOccupied = isOccupied,
+		Name = data.name,
+		ComputerId = self:GetAdjacentComputerId(orientation)
+	}
+	self.BlockData[position:ToString()] = result
+	return result
+end
+
+---@private
+function Client:DetectBlocks()
+	-- Detects all blocks and stores the data
+	self:SetBlockData(self.Orientation)
+	self:SetBlockData(Orientations.Up)
+	self:SetBlockData(Orientations.Down)
+end
+
+-- A little weird, but centralizes the logic for moving in a sorta generic way
+---@private
+---@param directionDefinition DirectionDefinition
+---@return boolean, string|nil
+function Client:PerformMovement(directionDefinition)
+	self:DetectBlocks()
+	local result, reason = directionDefinition.BaseMethod()
+
+	if result then
+		if directionDefinition.PositionChange then
+			local change = directionDefinition.PositionChange()
+			if change then
+				self.Position = self.Position + change
+			end
+		end
+		if directionDefinition.RotationChange then
+			self.Orientation = self.Orientation:Turn(directionDefinition.RotationChange)
+		end
+	end
+	
+	self:DetectBlocks()
+	return result, reason
+end
+
+---@private
+function Client:SetupMovementDirections()
+
+	local directions = {
+		forward = { PositionChange = function() return self.Orientation end },
+		back = { PositionChange = function() return -self.Orientation end },
+		up = { PositionChange = function() return Orientations.Up end },
+		down = { PositionChange = function() return Orientations.Down end },
+		turnLeft = { RotationChange = -1 },
+		turnRight = { RotationChange = 1 },
+		dig = {},
+		digUp = {},
+		digDown = {} -- To make it detect changes before/after digging
+	}
+
+	-- Set each one as a method on ourselves which does the customized movement
+	for k,v in pairs(directions) do
+		v.Name = k
+		v.BaseMethod = turtle[k]
+		self[k] = function() return self:PerformMovement(v) end
+	end
+end
+
+---@private
+function Client:Initialize()
+	self:SetupMovementDirections()
+
+	self:RefuelFromInventoryIfNeeded()
+
+	local x,y,z = gps.locate()
+	if x and y and z then
+		self.Position = vec3(x,y,z)
+		print("Determined GPS position: ", self.Position)
+		self:DetectGpsOrientation()
+	else
+		error("Couldn't get GPS position, which is now required")
+	end
+end
+
+
+
+-- Exposed public methods below, to be used over rednet
+-- Technically, the server can call any of our methods, but the previous ones should be hidden from intellisense with annotations cuz it shouldn't use them
+
+-- Override method for wrappable, which will include this in every response we send
+function Client:GetStateInfo()
+    return { Position = self.Position, Orientation = self.Orientation } ---@type TurtleState
+end
+
+function Client:GetPositionData()
+	return { Position = self.Position, Orientation = self.Orientation } ---@type PositionData
 end
 
 -- Public interface methods
-function networkMethodsClass:DetectGpsOrientation()
+function Client:DetectGpsOrientation()
 	for i=1, 4 do
 		-- Try to move forward, if it fails, turn right
 		if turtle.forward() then
@@ -51,12 +178,8 @@ function networkMethodsClass:DetectGpsOrientation()
 	self:DetectGpsOrientation()
 end
 
-function networkMethodsClass:GetPositionData()
-    return PositionData:new {Position = self.Position, Orientation = self.Orientation}
-end
-
 ---@param newOrientation vec3
-function networkMethodsClass:OrientTo(newOrientation)
+function Client:OrientTo(newOrientation)
 	if self.Orientation == newOrientation then return end
 	local turnAmount = self.Orientation:GetNumberOfTurnsTo(newOrientation)
 
@@ -71,14 +194,14 @@ function networkMethodsClass:OrientTo(newOrientation)
 end
 
 ---@param position vec3
-function networkMethodsClass:TurnToFace(position)
+function Client:TurnToFace(position)
 	local direction = (position - self.Position):normalize()
 	self:OrientTo(direction)
 end
 
 ---@param position vec3
 ---@return boolean MoveSuccessful
-function networkMethodsClass:MoveToward(position)
+function Client:MoveToward(position)
 	-- We'll attempt to orient just in case, but in the case of following path, we should already be oriented
 	self:TurnToFace(position)
 
@@ -104,8 +227,8 @@ end
 -- Will return Success = false if it failed because something was in the way, probably requiring re-pathing
 ---@param moveList MoveListData[]
 ---@return MoveListResult DetectedData
-function networkMethodsClass:FollowPath(moveList)
-	local result = MoveListResult:new { Success = true, BlockData = {} }
+function Client:FollowPath(moveList)
+	local result = { Success = true, BlockData = {} } ---@type MoveListResult
 
 	for _,v in ipairs(moveList) do
 		-- 1. Orient; the orientation of a move is the orientation required to reach it from the previous position
@@ -119,12 +242,10 @@ function networkMethodsClass:FollowPath(moveList)
 
 	result.BlockData = self.BlockData
 	self.BlockData = {}
-    result.Orientation = self.Orientation
-    result.Position = self.Position
 	return result
 end
 
-function networkMethodsClass:SelectEmptySlot()
+function Client:SelectEmptySlot()
     -- We have 16 slots, ignore the fuel slot
     for i=1, 16 do
         if i ~= self.FuelSlot and self.getItemCount(i) == 0 then
@@ -135,7 +256,7 @@ function networkMethodsClass:SelectEmptySlot()
     return false
 end
 
-function networkMethodsClass:MethodFor(methodName, orientation, param)
+function Client:MethodFor(methodName, orientation, param)
     -- We can sorta cheese this, in that if you give me 'suck', I can append Up or Down and return the method on the turtle
     if orientation == Orientations.Up then methodName = methodName .. "Up" end
     if orientation == Orientations.Down then methodName = methodName .. "Down" end
@@ -144,25 +265,25 @@ end
 
 ---@param orientation vec3
 ---@return boolean SuckedAny
-function networkMethodsClass:SuckFor(orientation)
+function Client:SuckFor(orientation)
     return self:MethodFor("suck", orientation)
 end
 
 ---@param orientation vec3
 ---@return boolean DroppedAny
-function networkMethodsClass:DropFor(orientation, amount)
+function Client:DropFor(orientation, amount)
     return self:MethodFor("drop", orientation, amount)
 end
 
 ---@param orientation vec3
 ---@return boolean DigSuccess
-function networkMethodsClass:DigFor(orientation)
+function Client:DigFor(orientation)
     return self:MethodFor("dig", orientation)
 end
 
 ---@param orientation vec3
 ---@return boolean suckedAny
-function networkMethodsClass:SuckAll(orientation)
+function Client:SuckAll(orientation)
     local suckedAny = false
     while self:SelectEmptySlot() and self:SuckFor(orientation) do
         suckedAny = true
@@ -171,14 +292,14 @@ function networkMethodsClass:SuckAll(orientation)
     return suckedAny
 end
 
-function networkMethodsClass:WrapChestIn(orientation)
+function Client:WrapChestIn(orientation)
     local name = "front"
     if orientation == Orientations.Up then name = "top"
     elseif orientation == Orientations.Down then name = "bottom" end
     return peripheral.wrap(name)
 end
 
-function networkMethodsClass:CountItems(orientation, filter)
+function Client:CountItems(orientation, filter)
     local count = 0
     local chest = self:WrapChestIn(orientation)
     if chest then
@@ -192,9 +313,9 @@ function networkMethodsClass:CountItems(orientation, filter)
     return count
 end
 
-function networkMethodsClass:DropAll(orientation, filter, desiredQuantity)
+function Client:DropAll(orientation, filter, desiredQuantity)
     for i=1, 16 do
-        local detail = turtle.getItemDetail(i)
+        local detail = self.getItemDetail(i)
         if detail and (not filter or (detail.name and filter and detail.name:containsWildcard(filter))) then
             -- Check if it has enough or if we need to add more
             local numToTransfer = detail.count
@@ -211,7 +332,7 @@ function networkMethodsClass:DropAll(orientation, filter, desiredQuantity)
 end
 
 -- Just from inventory for now
-function networkMethodsClass:RefuelFromInventory()
+function Client:RefuelFromInventory()
 
     local limit = self.getFuelLimit()/2
     -- Try to refuel from inventory first... for cases where we're starting with 0 fuel and not at a chest
@@ -236,14 +357,16 @@ function networkMethodsClass:RefuelFromInventory()
 end
 
 
-function networkMethodsClass:RefuelFromInventoryIfNeeded()
+function Client:RefuelFromInventoryIfNeeded()
     if self.getFuelLevel() <= self.getFuelLimit()/2 then
         self:RefuelFromInventory() -- TODO: Refuel in other ways...
     end
 end
 
-function networkMethodsClass:getItemDetail(index)
-    return turtle.getItemDetail(index)
+---@private
+function Client:Run()
+	parallel.waitForAny(function() self:HandleAllRednetMessagesBlocking() end) -- Can add parallel if I need to add more things later, for now this will just loop forever
 end
 
-return networkMethodsClass
+Client:Initialize()
+Client:Run()
