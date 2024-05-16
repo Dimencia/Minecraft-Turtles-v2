@@ -1,5 +1,5 @@
 -- Path to the GitHub repo (replace with actual repo URL)
-local repo_url = "https://raw.githubusercontent.com/yourusername/yourrepo/main/"
+local repo_url = "https://raw.githubusercontent.com/Dimencia/Minecraft-Turtles-v2/main/"
 
 -- File that lists other files to update
 local files_json_url = repo_url .. "files.json"
