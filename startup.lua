@@ -25,6 +25,19 @@ function table.contains(tbl, val)
     return false
 end
 
+local function trimLuaExtension(filename)
+    return filename:gsub("%.lua$", "")
+end
+
+-- Our 'main' files execute by just requiring them, rather than returning like a module
+local function runMain(fileName, retry)
+    local trimmed = trimLuaExtension(fileName)
+    while true do
+        xpcall(function() require(trimmed) end, function(err) print("Error in main file: " .. err) end)
+        if not retry then break end
+    end
+end
+
 -- Function to download a file from a URL
 local function download(url, path)
     local response = http.get(url)
@@ -46,6 +59,7 @@ local deviceType = isTurtle and "Turtle" or "Computer"
 -- Function to update all files listed in files.json
 local function updateFiles()
     local response = http.get(files_json_url)
+    local mainFile
     if response then
         local config = textutils.unserializeJSON(response.readAll())
         if config then
@@ -54,10 +68,18 @@ local function updateFiles()
                 if table.contains(attributes.ComputerTypes, deviceType) then
                     local url = repo_url .. file
                     download(url, file)
+                    if attributes.IsMain then
+                        mainFile = file
+                    end
                 end
             end
         end
         response.close()
+
+        if not mainFile then
+            print("No main file found...")
+        end
+        runMain(mainFile, true) -- Retry/loop back into it repeatedly if it crashes
     else
         print("Failed to fetch files list from " .. files_json_url)
     end
@@ -86,44 +108,18 @@ local function shouldUpdate()
 end
 
 -- Main update logic
-local function update(isSecondRun)
-    if not shouldUpdate() then return end
-    if not isSecondRun then
+local function update()
+    if not Startup_Method_Is_Second_Run then
+        if not shouldUpdate() then return end
         updateStartup()
-        -- Run the updated startup script with an argument indicating it's the second run
-        shell.run("startup.lua", "second_run")
+        Startup_Method_Is_Second_Run = true
+        -- Run the updated startup script again... with our global set, it should now do the second pass
+        runMain("startup")
         return
     end
     updateFiles()
 end
 
--- Check if this is the second run
-local isSecondRun = false
-local args = {...}
-if args[1] == "second_run" then
-    isSecondRun = true
-end
 
 -- Perform update
-update(isSecondRun)
-
--- If this is the second run, run the main file for the device type
-if isSecondRun then
-    local response = http.get(files_json_url)
-    if response then
-        local config = textutils.unserializeJSON(response.readAll())
-        if config then
-            for file, attributes in pairs(config) do
-                if attributes.ComputerTypes and table.contains(attributes.ComputerTypes, deviceType) and attributes.IsMain then
-                    shell.run(file)
-                    break
-                end
-            end
-        end
-        response.close()
-    end
-end
-
--- Add a manual trigger to update from command
-shell.setAlias("update", "lua update()")
-
+update()
