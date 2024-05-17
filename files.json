@@ -5,6 +5,7 @@
     "json.lua": { "ComputerTypes": ["Turtle", "Computer"] },
     "vec3.lua": { "ComputerTypes": ["Turtle", "Computer"] },
     "heap.lua": { "ComputerTypes": ["Turtle", "Computer"] },
+    "AdvancedLogging.lua": { "ComputerTypes": ["Turtle", "Computer"] },
 
     "PathfindingClient.lua": { "ComputerTypes": ["Turtle"], "IsMain": true },
 

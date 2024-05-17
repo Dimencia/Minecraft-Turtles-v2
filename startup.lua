@@ -30,12 +30,9 @@ local function trimLuaExtension(filename)
 end
 
 -- Our 'main' files execute by just requiring them, rather than returning like a module
-local function runMain(fileName, retry)
+local function runMain(fileName)
     local trimmed = trimLuaExtension(fileName)
-    while true do
-        xpcall(function() require(trimmed) end, function(err) print("Error in main file: " .. err) end)
-        if not retry then break end
-    end
+    require(trimmed)
 end
 
 -- Function to download a file from a URL
@@ -54,7 +51,7 @@ end
 
 
 local function readFile(fileName)
-    if not fs.exists(fileName) then return nil end
+    if not fs.exists(fileName) then print("File not found: " .. fileName) return nil end
     local file = fs.open(fileName, "r")
     local content = file.readAll()
     file.close()
@@ -109,13 +106,13 @@ local function shouldUpdate()
 end
 
 local function findRunMain()
-    runMain(getMainFile(), true) -- Retry/loop back into it repeatedly if it crashes
+    runMain(getMainFile()) -- Retry/loop back into it repeatedly if it crashes
 end
 
 -- Main update logic
 local function update()
     if not Startup_Method_Is_Second_Run then
-        if not shouldUpdate() then findRunMain() return end
+        if not shouldUpdate() then print("No update required") findRunMain() return end
         updateStartup()
         Startup_Method_Is_Second_Run = true
         -- Run the updated startup script again... with our global set, it should now do the second pass
@@ -124,6 +121,7 @@ local function update()
     end
     updateFiles()
     Startup_Method_Is_Second_Run = false
+    print("Update complete, running")
     findRunMain()
 end
 
