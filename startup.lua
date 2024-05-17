@@ -114,8 +114,8 @@ end
 
 -- Main update logic
 local function update()
-    if not shouldUpdate() then findRunMain() return end
     if not Startup_Method_Is_Second_Run then
+        if not shouldUpdate() then findRunMain() return end
         updateStartup()
         Startup_Method_Is_Second_Run = true
         -- Run the updated startup script again... with our global set, it should now do the second pass
@@ -123,6 +123,8 @@ local function update()
         return
     end
     updateFiles()
+    Startup_Method_Is_Second_Run = false
+    findRunMain()
 end
 
 
