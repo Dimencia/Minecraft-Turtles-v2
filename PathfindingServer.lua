@@ -3,7 +3,6 @@ local logger = require("AdvancedLogging")
 local vec3 = require("vec3")
 local pathfindingLogic = require("PathfindingLogic")
 local wrapperModule = require("RednetWrappable")
-local networkMethods = require("PathfindingNetworkMethods")
 
 local currentVersion = Extensions.ReadVersionFile()
 
@@ -187,7 +186,7 @@ end
 -- Periodically looks up turtles to add/remove their wrappers
 local function discoverTurtlesBlocking()
     while true do
-        local turtleIds = networkMethods:FindAllIds()
+        local turtleIds = table.pack(rednet.lookup(Extensions.TurtleClientProtocol))
 
         if turtleIds and #turtleIds > 0 then
             local toRemove = {}
