@@ -52,36 +52,45 @@ local function download(url, path)
     end
 end
 
+
+local function readFile(fileName)
+    if not fs.exists(fileName) then return nil end
+    local file = fs.open(fileName, "r")
+    local content = file.readAll()
+    file.close()
+    return content
+end
+
 -- Detect if the device is a turtle or a computer
 local isTurtle = turtle and true or false
 local deviceType = isTurtle and "Turtle" or "Computer"
 
--- Function to update all files listed in files.json
-local function updateFiles()
-    local response = http.get(files_json_url)
-    local mainFile
-    if response then
-        local config = textutils.unserializeJSON(response.readAll())
-        if config then
-            -- Update files based on device type
-            for file, attributes in pairs(config) do
-                if table.contains(attributes.ComputerTypes, deviceType) then
-                    local url = repo_url .. file
-                    download(url, file)
-                    if attributes.IsMain then
-                        mainFile = file
-                    end
+local function getMainFile()
+    local config = textutils.unserializeJSON(readFile("files.json"))
+    if config then
+        -- Update files based on device type
+        for file, attributes in pairs(config) do
+            if table.contains(attributes.ComputerTypes, deviceType) then
+                if attributes.IsMain then
+                    return file
                 end
             end
         end
-        response.close()
+    end
+end
 
-        if not mainFile then
-            print("No main file found...")
+-- Function to update all files listed in files.json
+local function updateFiles()
+    download(files_json_url, "files.json")
+    local config = textutils.unserializeJSON(readFile("files.json"))
+    if config then
+        -- Update files based on device type
+        for file, attributes in pairs(config) do
+            if table.contains(attributes.ComputerTypes, deviceType) then
+                local url = repo_url .. file
+                download(url, file)
+            end
         end
-        runMain(mainFile, true) -- Retry/loop back into it repeatedly if it crashes
-    else
-        print("Failed to fetch files list from " .. files_json_url)
     end
 end
 
@@ -92,25 +101,21 @@ end
 
 local versionFileName = "version.txt"
 
-local function readVersionFile()
-    if not fs.exists(versionFileName) then return nil end
-    local file = fs.open(versionFileName, "r")
-    local versionString = file.readAll()
-    file.close()
-    return versionString
+local function shouldUpdate()
+    local originalVersion = readFile(versionFileName)
+    download(repo_url .. versionFileName, versionFileName)
+    local newVersion = readFile(versionFileName)
+    return originalVersion ~= newVersion
 end
 
-local function shouldUpdate()
-    local originalVersion = readVersionFile()
-    download(repo_url .. versionFileName, versionFileName)
-    local newVersion = readVersionFile()
-    return originalVersion ~= newVersion
+local function findRunMain()
+    runMain(getMainFile(), true) -- Retry/loop back into it repeatedly if it crashes
 end
 
 -- Main update logic
 local function update()
+    if not shouldUpdate() then findRunMain() return end
     if not Startup_Method_Is_Second_Run then
-        if not shouldUpdate() then return end
         updateStartup()
         Startup_Method_Is_Second_Run = true
         -- Run the updated startup script again... with our global set, it should now do the second pass
