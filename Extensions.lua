@@ -3,6 +3,19 @@ local Extensions = {}
 
 Extensions.TurtleClientProtocol = "PathfindingTurtleClient"
 
+
+
+local versionFileName = "version.txt"
+
+function Extensions.ReadVersionFile()
+    if not fs.exists(versionFileName) then return nil end
+    local file = fs.open(versionFileName, "w")
+    local versionString = file.readAll()
+    file.close()
+    return versionString
+end
+
+
 -- The 'standard' lua OOP pattern doesn't really chain inheritance well, esp if I want private vs public methods on the same class, and we need this to be able to do that
 -- This will take an object, which has a metatable, and setup a new metatable for it which tries the new one first
 function Extensions.AddMetatableIndexToExisting(existingObject, newIndex)
@@ -51,6 +64,19 @@ function table:Join(delimiter)
 	end
 	return string
  end
+
+ ---@param sep string
+ ---@return string[]
+ function string:Split (sep)
+	if sep == nil then
+			sep = "%s"
+	end
+	local t={}
+	for str in string.gmatch(self, "([^"..sep.."]+)") do
+			table.insert(t, str)
+	end
+	return t
+end
 
 ---@param methodName string
 ---@param orientation vec3

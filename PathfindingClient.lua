@@ -14,11 +14,13 @@ logger:AddFileLogger("LogFile", LogLevels.Warning)
 ---@class TurtleState
 ---@field Position vec3
 ---@field Orientation vec3
+---@field CurrentVersion string
 
 -- Class for a turtle client, exposing methods to be called via rednet
 ---@class PathfindingClient : RednetWrapClient
 ---@field private Position vec3
 ---@field private Orientation vec3
+---@field private CurrentVersion string
 local Client = wrapModule.ClientBuilder.new(turtle) -- Start from turtle, which metas to wrapclient, which metas to the static
 
 Client.Id = os.getComputerID() ---@private
@@ -121,6 +123,7 @@ end
 
 ---@private
 function Client:Initialize()
+	self.CurrentVersion = Extensions.ReadVersionFile() or ""
 	self:SetupMovementDirections()
 
 	self:RefuelFromInventoryIfNeeded()
@@ -142,7 +145,7 @@ end
 
 -- Override method for wrappable, which will include this in every response we send
 function Client:GetStateInfo()
-    return { Position = self.Position, Orientation = self.Orientation } ---@type TurtleState
+    return { Position = self.Position, Orientation = self.Orientation, CurrentVersion = self.CurrentVersion } ---@type TurtleState
 end
 
 function Client:GetPositionData()
@@ -353,15 +356,18 @@ function Client:RefuelFromInventory()
             end
         end
     end
-
 end
-
 
 function Client:RefuelFromInventoryIfNeeded()
     if self.getFuelLevel() <= self.getFuelLimit()/2 then
         self:RefuelFromInventory() -- TODO: Refuel in other ways...
     end
 end
+
+function Client:UpdateLuaFiles()
+	os.reboot() -- A reboot should make it update, IDK how else to ensure we close before the startup method runs the new one
+end
+
 
 ---@private
 function Client:Run()

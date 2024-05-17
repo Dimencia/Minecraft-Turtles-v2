@@ -4,6 +4,16 @@ local repo_url = "https://raw.githubusercontent.com/Dimencia/Minecraft-Turtles-v
 -- File that lists other files to update
 local files_json_url = repo_url .. "files.json"
 
+local function stringSplit (self, sep)
+	if sep == nil then
+			sep = "%s"
+	end
+	local t={}
+	for str in string.gmatch(self, "([^"..sep.."]+)") do
+			table.insert(t, str)
+	end
+	return t
+end
 
 -- Utility function to check if a table contains a value
 function table.contains(tbl, val)
@@ -58,8 +68,26 @@ local function updateStartup()
     download(repo_url .. "startup.lua", "startup.lua")
 end
 
+local versionFileName = "version.txt"
+
+local function readVersionFile()
+    if not fs.exists(versionFileName) then return nil end
+    local file = fs.open(versionFileName, "w")
+    local versionString = file.readAll()
+    file.close()
+    return versionString
+end
+
+local function shouldUpdate()
+    local originalVersion = readVersionFile()
+    download(repo_url .. versionFileName, versionFileName)
+    local newVersion = readVersionFile()
+    return originalVersion ~= newVersion
+end
+
 -- Main update logic
 local function update(isSecondRun)
+    if not shouldUpdate() then return end
     if not isSecondRun then
         updateStartup()
         -- Run the updated startup script with an argument indicating it's the second run

@@ -5,17 +5,21 @@ local pathfindingLogic = require("PathfindingLogic")
 local wrapperModule = require("RednetWrappable")
 local networkMethods = require("PathfindingNetworkMethods")
 
+local currentVersion = Extensions.ReadVersionFile()
+
 -- A wrapper class to represent a wrapped turtle
 ---@class TurtleWrapper : PathfindingClient
 ---@field Position vec3
 ---@field Orientation vec3
 ---@field Id number
 ---@field JobThread thread|nil
+---@field CurrentVersion string
 local turtleWrapper = wrapperModule.ServerBuilder.new({ HostedProtocolName = Extensions.TurtleClientProtocol }) -- Ignore the warning, because it 'spoofs' as NetworkMethods
 
 function turtleWrapper:ResponseCallback(message)
     if message.State then
         local state = message.State ---@type TurtleState
+        if state.CurrentVersion then self.CurrentVersion = state.CurrentVersion end
         if state.Position then self.Position = state.Position end
         if state.Orientation then self.Orientation = state.Orientation end
     end
@@ -24,6 +28,10 @@ end
 function turtleWrapper:new(id)
     local object = {Id = id}
     local result = setmetatable(object, {__index = turtleWrapper})
+    -- Upon initializing a wrapper, force the wrapped turtle to update files from github and restart
+    result:UpdateLuaFiles()
+    -- Then send a message to get state info; if this message isn't acked, it'll retry til it does, so it's OK that they're shutdown right now
+    -- TODO: Consider how we can do that cleaner; ideally we don't return from the client til we're updated and reinitialized in the new logic
     result:GetStateInfo() -- Send rednet message to get state info, which will initialize via the response callback
     return result
 end
@@ -79,7 +87,13 @@ local refuelChestPositions = {
 
 local function getOrCreateWrapper(id)
     if not turtleWrappers[id] then
-        turtleWrappers[id] = turtleWrapper:new(id)
+        local wrapper = turtleWrapper:new(id)
+        if wrapper.CurrentVersion ~= currentVersion then
+            -- Make it update and don't add it; we'll add it once it's done and comes back
+            wrapper:UpdateLuaFiles()
+        else
+            turtleWrapper[id] = wrapper
+        end
     end
     return turtleWrappers[id]
 end
