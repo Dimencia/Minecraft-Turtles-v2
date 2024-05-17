@@ -9,7 +9,7 @@ local versionFileName = "version.txt"
 
 function Extensions.ReadVersionFile()
     if not fs.exists(versionFileName) then return nil end
-    local file = fs.open(versionFileName, "w")
+    local file = fs.open(versionFileName, "r")
     local versionString = file.readAll()
     file.close()
     return versionString
